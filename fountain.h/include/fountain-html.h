@@ -11,6 +11,8 @@ extern "C" {
 #define FN_HTML_FLAG_DEBUG 0x0001      /* Log debug output to stderr */
 #define FN_HTML_FLAG_SKIP_TITLE 0x0002 /* Omit title page from output */
 #define FN_HTML_FLAG_SKIP_BODY 0x0004  /* Omit body from output */
+#define FN_HTML_FLAG_BLOCK_INDEX                                               \
+    0x0008 /* Emit data-idx on top-level blocks; separate blocks with \x01 byte */
 
 /* Render a Fountain document as HTML.
  *

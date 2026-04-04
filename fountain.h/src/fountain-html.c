@@ -32,6 +32,9 @@ typedef struct FN_HTML_CTX {
 
     /* Skip flags (derived from renderer_flags and block context) */
     int skip; /* If non-zero, suppress all output */
+
+    int depth;       /* Block nesting depth (0 before DOC opens) */
+    int block_index; /* Next data-idx value to emit */
 } FN_HTML_CTX;
 
 /* ==============================
@@ -71,11 +74,6 @@ static void out(FN_HTML_CTX *ctx, const char *s, FN_SIZE len)
 }
 
 #define OUT_LIT(ctx, lit) out((ctx), (lit), sizeof(lit) - 1)
-
-//static void out_s(FN_HTML_CTX* ctx, const char* s)
-//{
-//    out(ctx, s, (FN_SIZE)strlen(s));
-//}
 
 static void out_escaped(FN_HTML_CTX *ctx, const FN_CHAR *s, FN_SIZE len)
 {
@@ -145,10 +143,25 @@ static int html_enter_block(FN_BLOCKTYPE type, void *detail, void *ud)
 {
     FN_HTML_CTX *ctx = (FN_HTML_CTX *)ud;
 
+    /* Top-level blocks are direct children of DOC (depth == 1 before
+     * incrementing). DOC itself enters at depth 0. */
+    int is_toplevel = (ctx->depth == 1);
+    ctx->depth++;
+
+    /* Block separator and data-idx attribute for indexed mode. */
+    char idx[32] = "";
+    int idx_len = 0;
+
+    if (is_toplevel && (ctx->renderer_flags & FN_HTML_FLAG_BLOCK_INDEX)) {
+        if (ctx->block_index > 0)
+            out(ctx, "\x01", 1);
+        idx_len =
+            snprintf(idx, sizeof(idx), " data-idx='%d'", ctx->block_index++);
+    }
+
     switch (type) {
 
     case FN_BLOCK_DOC:
-        /* No output; fn_html() emits the article/section wrapper. */
         break;
 
     case FN_BLOCK_TITLE_PAGE:
@@ -156,14 +169,16 @@ static int html_enter_block(FN_BLOCKTYPE type, void *detail, void *ud)
             ctx->skip = 1;
             break;
         }
-        OUT_LIT(ctx, "<div id='script-title'>\n");
+        OUT_LIT(ctx, "<div id='script-title'");
+        if (idx_len)
+            out(ctx, idx, idx_len);
+        OUT_LIT(ctx, ">\n");
         break;
 
     case FN_BLOCK_TITLE_ENTRY: {
         FN_BLOCK_TITLE_ENTRY_DETAIL *d = (FN_BLOCK_TITLE_ENTRY_DETAIL *)detail;
         ctx->title_key = d->key;
         ctx->title_key_size = d->key_size;
-
         OUT_LIT(ctx, "<p class='");
         out_title_css_class(ctx, d->key, d->key_size);
         OUT_LIT(ctx, "'>");
@@ -176,7 +191,10 @@ static int html_enter_block(FN_BLOCKTYPE type, void *detail, void *ud)
         ctx->scene_number = d->scene_number;
         ctx->scene_number_size = d->scene_number_size;
 
-        OUT_LIT(ctx, "<p class='scene-heading'>");
+        OUT_LIT(ctx, "<p class='scene-heading'");
+        if (idx_len)
+            out(ctx, idx, idx_len);
+        OUT_LIT(ctx, ">");
 
         if (d->scene_number) {
             OUT_LIT(ctx, "<span class='scene-number-left'>");
@@ -189,52 +207,77 @@ static int html_enter_block(FN_BLOCKTYPE type, void *detail, void *ud)
     case FN_BLOCK_ACTION: {
         FN_BLOCK_ACTION_DETAIL *d = (FN_BLOCK_ACTION_DETAIL *)detail;
         if (d && d->is_centered)
-            OUT_LIT(ctx, "<p class='action center'>");
+            OUT_LIT(ctx, "<p class='action center'");
         else
-            OUT_LIT(ctx, "<p class='action'>");
+            OUT_LIT(ctx, "<p class='action'");
+        if (idx_len)
+            out(ctx, idx, idx_len);
+        OUT_LIT(ctx, ">");
         break;
     }
 
     case FN_BLOCK_CHARACTER: {
-        /* Inside dual dialogue, the second CHARACTER switches from
-         * left to right panel. */
         FN_BLOCK_CHARACTER_DETAIL *d = (FN_BLOCK_CHARACTER_DETAIL *)detail;
         if (d && d->is_dual_dialogue) {
             ctx->dual_char_count++;
             if (ctx->dual_char_count == 2)
                 OUT_LIT(ctx, "</div>\n<div class='dual-dialogue-right'>\n");
         }
-        OUT_LIT(ctx, "<p class='character'>");
+        OUT_LIT(ctx, "<p class='character'");
+        if (idx_len)
+            out(ctx, idx, idx_len);
+        OUT_LIT(ctx, ">");
         break;
     }
 
     case FN_BLOCK_DIALOGUE:
-        OUT_LIT(ctx, "<p class='dialogue'>");
+        OUT_LIT(ctx, "<p class='dialogue'");
+        if (idx_len)
+            out(ctx, idx, idx_len);
+        OUT_LIT(ctx, ">");
         break;
 
     case FN_BLOCK_PARENTHETICAL:
-        OUT_LIT(ctx, "<p class='parenthetical'>");
+        OUT_LIT(ctx, "<p class='parenthetical'");
+        if (idx_len)
+            out(ctx, idx, idx_len);
+        OUT_LIT(ctx, ">");
         break;
 
     case FN_BLOCK_TRANSITION:
-        OUT_LIT(ctx, "<p class='transition'>");
+        OUT_LIT(ctx, "<p class='transition'");
+        if (idx_len)
+            out(ctx, idx, idx_len);
+        OUT_LIT(ctx, ">");
         break;
 
     case FN_BLOCK_LYRICS:
-        OUT_LIT(ctx, "<p class='lyrics'>");
+        OUT_LIT(ctx, "<p class='lyrics'");
+        if (idx_len)
+            out(ctx, idx, idx_len);
+        OUT_LIT(ctx, ">");
         break;
 
     case FN_BLOCK_LYRICS_SPACER:
-        OUT_LIT(ctx, "<p class='lyrics'>&nbsp;</p>\n");
+        OUT_LIT(ctx, "<p class='lyrics'");
+        if (idx_len)
+            out(ctx, idx, idx_len);
+        OUT_LIT(ctx, ">&nbsp;</p>\n");
         break;
 
     case FN_BLOCK_PAGE_BREAK:
-        OUT_LIT(ctx, "</section>\n<section>\n");
+        OUT_LIT(ctx, "<hr class='page-break'");
+        if (idx_len)
+            out(ctx, idx, idx_len);
+        OUT_LIT(ctx, ">\n");
         break;
 
     case FN_BLOCK_DUAL_DIALOGUE:
         ctx->dual_char_count = 0;
-        OUT_LIT(ctx, "<div class='dual-dialogue'>\n");
+        OUT_LIT(ctx, "<div class='dual-dialogue'");
+        if (idx_len)
+            out(ctx, idx, idx_len);
+        OUT_LIT(ctx, ">\n");
         OUT_LIT(ctx, "<div class='dual-dialogue-left'>\n");
         break;
 
@@ -256,6 +299,8 @@ static int html_leave_block(FN_BLOCKTYPE type, void *detail, void *ud)
 {
     FN_HTML_CTX *ctx = (FN_HTML_CTX *)ud;
     (void)detail;
+
+    ctx->depth--;
 
     switch (type) {
 
@@ -413,14 +458,17 @@ int fn_html(const FN_CHAR *input, FN_SIZE input_size,
                                    FN_FLAG_SECTIONS | FN_FLAG_SYNOPSES);
 
     /* Emit outer wrapper. */
-    if (!(renderer_flags & FN_HTML_FLAG_SKIP_BODY))
+    int emit_wrapper = !(renderer_flags & FN_HTML_FLAG_SKIP_BODY) &&
+                       !(renderer_flags & FN_HTML_FLAG_BLOCK_INDEX);
+
+    if (emit_wrapper)
         process_output("<article>\n<section>\n", 20, userdata);
 
     int ret = fn_parse(input, input_size, &parser, &ctx, pf);
 
     fn_html_flush_(&ctx);
 
-    if (!(renderer_flags & FN_HTML_FLAG_SKIP_BODY))
+    if (emit_wrapper)
         process_output("</section>\n</article>\n", 22, userdata);
 
     return ret;
